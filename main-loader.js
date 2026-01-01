@@ -1,55 +1,132 @@
+/**
+ * MAIN LOADER - The Central Nervous System of the Website
+ * This script is the ONLY script that needs to be added to Webflow.
+ * It manages dependencies, versions, and page-specific loading.
+ */
+
 (function() {
-    // --- 1. CONFIGURATION ---
-    // Update this ONE number to upgrade your whole site
-    const version = 'v0.0.6'; 
+    // ============================================================
+    // 1. CONFIGURATION
+    // ============================================================
     
-    const ghUrl = `https://cdn.jsdelivr.net/gh/podkowa-next/gterm@${version}/`;
+    // The Version: Change this ONE string to update every script on the site.
+    const version = 'v0.0.7'; 
     
-    // External Libraries (The "Tools")
+    // The Base URL: Where your repo files live on jsDelivr.
+    const ghBaseUrl = `https://cdn.jsdelivr.net/gh/podkowa-next/gterm@${version}/`;
+
+    // External Libraries: Kept here to keep the code clean below.
     const libs = {
-        rive: 'https://unpkg.com/@rive-app/webgl2@latest',
-        echarts: 'https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js'
+        rive:     'https://unpkg.com/@rive-app/webgl2@latest',
+        chartJs:  'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js',
+        finsweet: 'https://cdn.jsdelivr.net/npm/@finsweet/attributes@2/attributes.js',
+        // Note: Assuming GSAP is loaded via Webflow interactions or another source?
+        // If not, we should add GSAP here too for the Navbar to work.
     };
 
+
+    // ============================================================
+    // 2. THE LOADER ENGINE
+    // ============================================================
+
     /**
-     * Loads a script into the document head
-     * @param {string} src - The URL or filename
-     * @param {boolean} isExternal - If true, uses src as-is. If false, prepends your GitHub URL.
+     * loadScript()
+     * A helper function to inject <script> tags into the document head.
+     * 
+     * @param {string} src       - The file name (repo) or full URL (external).
+     * @param {object} options   - { isExternal: bool, attributes: object }
      */
-    function loadScript(src, isExternal = false) {
-        let script = document.createElement('script');
-        script.src = isExternal ? src : ghUrl + src;
-        script.defer = true; // Crucial: Ensures scripts execute in the order we add them
+    function loadScript(src, options = {}) {
+        const script = document.createElement('script');
+        
+        // A. Determine the full URL
+        // If isExternal is true, use src as-is. If false, append it to our GitHub path.
+        script.src = options.isExternal ? src : ghBaseUrl + src;
+
+        // B. Handle Special Attributes (async, type="module")
+        // Finsweet needs 'async' and 'type="module"', standard scripts need 'defer'.
+        if (options.attributes) {
+            for (const [key, value] of Object.entries(options.attributes)) {
+                // If the value is Boolean true (like 'async'), set it directly
+                if (value === true) {
+                    script[key] = true; 
+                } else {
+                    script.setAttribute(key, value);
+                }
+            }
+        } else {
+            // Default behavior for our custom scripts: DEFER (execute in order)
+            script.defer = true;
+        }
+
+        // C. Inject into the DOM
         document.head.appendChild(script);
     }
 
-    // --- 2. ROUTING LOGIC ---
+
+    // ============================================================
+    // 3. ROUTING LOGIC (The Traffic Controller)
+    // ============================================================
+    
     const path = window.location.pathname;
 
-    // A. RIVE ANIMATIONS
-    // We check for the element ID so we don't depend on URL paths (safer for CMS)
-    if (document.getElementById('rive')) {
-        // Order matters! Library first, then your controller.
-        loadScript(libs.rive, true);
+    // --- A. GLOBAL SCRIPTS (Load on EVERY page) ---
+    
+    // 1. Navbar Script (Now loaded from GitHub!)
+    loadScript('navbar.js');
+
+    // 2. Finsweet Attributes (Async + Module)
+    loadScript(libs.finsweet, { 
+        isExternal: true, 
+        attributes: { async: true, type: 'module', 'fs-list': '' } 
+    });
+
+
+    // --- B. PAGE SPECIFIC SCRIPTS ---
+
+    // 1. HOME PAGE (/)
+    if (path === '/') {
+        loadScript('home-cards.js');
+    }
+
+    // 2. RIVE PAGE (/jak-dziala-geotermia-stargard)
+    if (path.includes('/jak-dziala-geotermia-stargard')) {
+        // Load Library FIRST
+        loadScript(libs.rive, { isExternal: true });
+        // Load Controller SECOND
         loadScript('rive-controller.js');
     }
 
-    // B. MAPS
-    // Only on Contact page
-    if (path.includes('/contact')) {
+    // 3. CHART PAGES (Production & Environment)
+    // Since both use the same logic, we use an OR operator (||)
+    if (path.includes('/produkcja-ciepla-i-skala-oszczednosci') || 
+        path.includes('/wplyw-na-srodowisko')) {
+        
+        // Load Chart.js Library FIRST
+        loadScript(libs.chartJs, { isExternal: true });
+        // Load Your Charts Code SECOND
+        loadScript('charts-prod-env.js');
+    }
+
+    // 4. MAP PAGE (/polski-potencjal)
+    if (path.includes('/polski-potencjal')) {
         loadScript('resources-map.js');
     }
 
-    // C. CARDS / HOME
-    // Only on Home or Blog
-    if (path === '/' || path.includes('/blog')) {
-        loadScript('head-cards.js');
+    // 5. ARTICLES TEMPLATE (/artykuly/...)
+    // This checks if the URL *starts with* or *contains* /artykuly/
+    if (path.includes('/artykuly/')) {
+        loadScript('articles-template.js');
     }
-    
-    // D. CHARTS (Example for future)
-    if (document.querySelector('[data-chart]')) {
-        loadScript(libs.echarts, true);
-        loadScript('my-charts.js');
+
+    // ============================================================
+    // 4. FUTURE LOCALIZATION LOGIC (Example)
+    // ============================================================
+    /*
+    if (path.startsWith('/en/')) {
+        // You could load an English-specific config file here
+        // loadScript('config-en.js');
     }
+    */
 
 })();
