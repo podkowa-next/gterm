@@ -38,28 +38,25 @@
      */
     function loadScript(src, options = {}) {
         const script = document.createElement('script');
-        
-        // A. Determine the full URL
-        // If isExternal is true, use src as-is. If false, append it to our GitHub path.
         script.src = options.isExternal ? src : ghBaseUrl + src;
 
-        // B. Handle Special Attributes (async, type="module")
-        // Finsweet needs 'async' and 'type="module"', standard scripts need 'defer'.
+        // --- CRITICAL FIX ---
+        // Force the browser to execute these in the order we added them.
+        // Without this, the small 'controller' file runs before the big 'library' file finishes.
+        script.async = false; 
+
+        // Handle Finsweet (Async + Module)
+        // Finsweet is unique because it manages its own loading, so we respect its settings.
         if (options.attributes) {
             for (const [key, value] of Object.entries(options.attributes)) {
-                // If the value is Boolean true (like 'async'), set it directly
                 if (value === true) {
                     script[key] = true; 
                 } else {
                     script.setAttribute(key, value);
                 }
             }
-        } else {
-            // Default behavior for our custom scripts: DEFER (execute in order)
-            script.defer = true;
         }
 
-        // C. Inject into the DOM
         document.head.appendChild(script);
     }
 
