@@ -10,7 +10,7 @@
     // ============================================================
     
     // The Version: Change this ONE string to update every script on the site.
-    const version = 'v0.0.7'; 
+    const version = 'v0.0.9'; 
     
     // The Base URL: Where your repo files live on jsDelivr.
     const ghBaseUrl = `https://cdn.jsdelivr.net/gh/podkowa-next/gterm@${version}/`;
