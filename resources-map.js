@@ -1,4 +1,3 @@
-
 // --- 1. Load Mapbox + Turf ---
 const mapboxCss = document.createElement('link');
 mapboxCss.href = 'https://api.mapbox.com/mapbox-gl-js/v3.12.0/mapbox-gl.css';
@@ -99,7 +98,6 @@ function getAreaGeoJSON() {
 // -----------------------------------------------------
 //  Extract Custom Location Pins (from Webflow CMS)
 // -----------------------------------------------------
-// --- Extract locations (Fixed: Sorting & Defaults + Keeps your Custom Logic) ---
 function getLocationsList() {
   const pins = [];
   const items = document.querySelectorAll('#map-data-source [data-loc-lat]');
@@ -114,28 +112,24 @@ function getLocationsList() {
       if (isNaN(lat) || isNaN(lng)) return;
 
       const imgUrl = getVal(item,'data-loc-icon-url');
-
-      // Clickability flag
       const clickableRaw = (getVal(item,'data-loc-click') || '').trim().toLowerCase();
       const isClickable = clickableRaw === 'true';
-
-      // Slug used to match with dialog [data-dialog-id]
       const slug = getVal(item,'data-loc-slug') || '';
 
-      // Target behaviour for dialog link (default: open in new tab)
       const targetRaw = getVal(item,'data-loc-target');
       let targetBlank = true;
       if (typeof targetRaw === 'string') {
         const v = targetRaw.trim().toLowerCase();
         if (v === 'false') targetBlank = false;
         else if (v === 'true') targetBlank = true;
-        // anything else → keep default true
       }
 
       const minZoom = safeFloat(getVal(item,'data-loc-zoom'), 0);
-      
-      // FIX 1: Changed default from 10 to 0 so undefined items stay at the bottom
       const zIndex = safeFloat(getVal(item,'data-loc-index'), 0);
+
+      // --- Template Variant ID ---
+      const templateRaw = getVal(item, 'data-loc-template');
+      const templateId = templateRaw ? templateRaw.trim() : '1';
 
       pins.push({
         lat,
@@ -144,20 +138,18 @@ function getLocationsList() {
         description: getVal(item,'data-loc-desc'),
         iconUrl:     imgUrl,
         minZoom,
-        zIndex,      // Uses the variable defined above
+        zIndex,
         isClickable,
         slug,
-        targetBlank
+        targetBlank,
+        templateId
       });
     } catch(e) {
       // ignore malformed items
     }
   });
 
-  // FIX 2: Sort the array by Z-Index (Low -> High)
-  // This forces Mapbox to draw higher numbers on top of lower numbers
   pins.sort((a, b) => a.zIndex - b.zIndex);
-
   return pins;
 }
 
@@ -187,11 +179,8 @@ function buildHexGrid(areasFC) {
   const CELL_KM = resolution;
   const rawGrid = turf.hexGrid(bbox, CELL_KM, { units:'kilometers' });
 
-  // Prepare metadata for iterative blend
   const layersMeta = areasFC.features.map(f => {
     const p = f.properties;
-
-    // Convert polygon boundaries to line segments
     let boundaryLines = [];
     try {
       const converted = turf.polygonToLine(f);
@@ -202,9 +191,7 @@ function buildHexGrid(areasFC) {
       } else {
         boundaryLines.push(...explodeToLineStrings(converted.geometry));
       }
-    } catch(e) {
-      // ignore
-    }
+    } catch(e) { }
 
     let softnessRadiusKm = (p.softness / 100) * 100;
     if (softnessRadiusKm > 0 && softnessRadiusKm < CELL_KM * 3) {
@@ -230,7 +217,6 @@ function buildHexGrid(areasFC) {
 
   const out = [];
 
-  // Compute each hex cell color using iterative compositing
   rawGrid.features.forEach(hex => {
     const center = turf.centerOfMass(hex);
     const activeLayers = layersMeta.filter(m =>
@@ -247,7 +233,6 @@ function buildHexGrid(areasFC) {
     activeLayers.forEach(m => {
       let alpha = m.baseOpacity;
 
-      // Soft edges near polygon boundaries
       if (m.boundaryLines.length > 0 && m.softnessRadiusKm > 0) {
         let minD = Infinity;
         m.boundaryLines.forEach(line => {
@@ -262,7 +247,6 @@ function buildHexGrid(areasFC) {
         }
       }
 
-      // Random jitter
       if (m.jitterAmp > 0) {
         alpha += (Math.random() - 0.5) * m.jitterAmp;
       }
@@ -270,7 +254,6 @@ function buildHexGrid(areasFC) {
       alpha = Math.max(0, Math.min(1, alpha));
       if (alpha <= 0.001) return;
 
-      // Source-over compositing
       const newA = alpha + currentA * (1 - alpha);
 
       if (newA > 0) {
@@ -327,7 +310,6 @@ function initMap() {
     return;
   }
 
-  // --- Loader Overlay ---
   const mapContainer = document.getElementById('map');
   if (mapContainer) {
     const overlay = document.createElement('div');
@@ -348,12 +330,9 @@ function initMap() {
     style:'mapbox://styles/webservice-dev/cmcmck0kf008k01r1bggr7bqm',
     center:[19.2,52.0],
     zoom:5.6
-    // No cooperativeGestures — custom gesture UI & logic below
   });
 
-  // Disable scroll zoom until Ctrl/⌘ is pressed
   map.scrollZoom.disable();
-
   map.addControl(new mapboxgl.NavigationControl());
 
   const popup = new mapboxgl.Popup({
@@ -363,9 +342,6 @@ function initMap() {
     offset:20
   });
 
-  // -----------------------------------------------------
-  // DIALOG REGISTRY + HELPERS
-  // -----------------------------------------------------
   const dialogRegistry = new Map();
   let openDialog = null;
 
@@ -384,14 +360,11 @@ function initMap() {
 
   function openMapDialog(dialogEl, loc) {
     if (!dialogEl) return;
-
-    // Close any other open dialog
     if (openDialog && openDialog !== dialogEl) {
       closeMapDialog(openDialog);
     }
     openDialog = dialogEl;
 
-    // Apply target behaviour for the link inside this dialog
     const linkEl = dialogEl.querySelector('[data-dialog-link]');
     if (linkEl && loc) {
       if (loc.targetBlank) {
@@ -403,7 +376,6 @@ function initMap() {
       }
     }
 
-    // Show dialog
     if (typeof dialogEl.showModal === 'function') {
       if (!dialogEl.open) dialogEl.showModal();
     } else {
@@ -412,41 +384,33 @@ function initMap() {
     dialogEl.classList.add('is-open');
   }
 
-  // Prepare all <dialog data-map-dialog data-dialog-id="slug">
   document.querySelectorAll('[data-map-dialog][data-dialog-id]').forEach(dialogEl => {
     const id = dialogEl.getAttribute('data-dialog-id');
     if (!id) return;
 
     dialogRegistry.set(id, dialogEl);
 
-    // Close buttons inside dialog
     dialogEl.querySelectorAll('[data-dialog-close]').forEach(btn => {
       btn.addEventListener('click', () => {
         closeMapDialog(dialogEl);
       });
     });
 
-    // Click on backdrop (outside dialog wrapper) -> close
     dialogEl.addEventListener('click', (event) => {
       if (event.target === dialogEl) {
         closeMapDialog(dialogEl);
       }
     });
 
-    // ESC key when dialog has focus
     dialogEl.addEventListener('cancel', (event) => {
-      event.preventDefault(); // prevent native auto-close so we can manage classes
+      event.preventDefault(); 
       closeMapDialog(dialogEl);
     });
   });
 
-  // -----------------------------------------------------
-  // CUSTOM GESTURE TOOLTIP SYSTEM (desktop + touch)
-  // -----------------------------------------------------
   const gestureEl = document.querySelector('[data-map-ctrlmsg]');
   let gestureTimer;
 
-  // Localized messages (allow HTML inside)
   let ctrlMsgText  = 'Use Ctrl + Scroll to zoom';
   let touchMsgText = 'Use two fingers to move the map';
 
@@ -460,24 +424,18 @@ function initMap() {
     touchMsgText = touchMsgSource.innerHTML.trim();
   }
 
-  // Ensure tooltip always sits above markers
   if (gestureEl) gestureEl.style.zIndex = '2000';
 
   function triggerGestureMsg(type) {
     if (!gestureEl) return;
-
     gestureEl.innerHTML = (type === 'touch') ? touchMsgText : ctrlMsgText;
-
     gestureEl.classList.add('is-visible');
     gestureEl.style.display = 'flex';
     gestureEl.style.opacity = '1';
-
     if (gestureTimer) clearTimeout(gestureTimer);
-
     gestureTimer = setTimeout(() => {
       gestureEl.classList.remove('is-visible');
       gestureEl.style.opacity = '0';
-
       setTimeout(() => {
         if (!gestureEl.classList.contains('is-visible')) {
           gestureEl.style.display = 'none';
@@ -486,17 +444,12 @@ function initMap() {
     }, 2000);
   }
 
-  // -----------------------------------------------------
-  // DESKTOP: Require Ctrl/⌘ for zoom, but allow page scroll otherwise
-  // -----------------------------------------------------
   const canvas = map.getCanvas();
 
   canvas.addEventListener('wheel', (e) => {
-    const wantsZoom = e.ctrlKey || e.metaKey; // Ctrl (Win/Linux), ⌘ (Mac)
-
+    const wantsZoom = e.ctrlKey || e.metaKey;
     if (wantsZoom) {
       map.scrollZoom.enable();
-      // Mapbox will automatically prevent page scroll while zooming
     } else {
       map.scrollZoom.disable();
       triggerGestureMsg('zoom');
@@ -507,7 +460,6 @@ function initMap() {
     map.scrollZoom.disable();
   });
 
-  // Desktop drag behaviour: keep pan enabled, including when ⌘ is pressed
   window.addEventListener('keydown', (e) => {
     if (e.metaKey) {
       map.dragPan.enable();
@@ -516,14 +468,10 @@ function initMap() {
 
   window.addEventListener('keyup', (e) => {
     if (!e.metaKey && !('ontouchstart' in window)) {
-      // Desktop: keep drag enabled after key release
       map.dragPan.enable();
     }
   });
 
-  // -----------------------------------------------------
-  // TOUCH DEVICES: Require two fingers for map drag
-  // -----------------------------------------------------
   map.dragPan.disable();
 
   map.on('touchstart', (e) => {
@@ -547,9 +495,6 @@ function initMap() {
     map.dragPan.disable();
   });
 
-  // -----------------------------------------------------
-  // MAP LOAD: Hex generation + markers + zoom visibility
-  // -----------------------------------------------------
   let isHoveringMarker = false;
   const markerEntries = [];
 
@@ -570,7 +515,6 @@ function initMap() {
 
       map.addSource('hex-src', { type:'geojson', data:hexData });
 
-      // Place hex layers beneath symbol / label layers
       const layers = map.getStyle().layers;
       let beforeId = null;
       const priorityKeywords = ['symbol','label','road','building'];
@@ -609,14 +553,24 @@ function initMap() {
         }
       }, beforeId);
 
-      // --- CUSTOM PIN MARKERS + DIALOG HOOKUP ---
+      // --- CUSTOM PIN MARKERS ---
       const pins = getLocationsList();
-      const tpl = document.getElementById('pin-template');
 
-      if (tpl) {
-        pins.forEach(loc => {
+      pins.forEach(loc => {
+        // --- TEMPLATE LOGIC ---
+        const targetId = `pin-template-${loc.templateId}`;
+        let tpl = document.getElementById(targetId);
+        
+        // Fallback to template 1
+        if (!tpl) {
+          tpl = document.getElementById('pin-template-1');
+        }
+        
+        if (tpl) {
           const el = document.createElement('div');
-          el.className = tpl.className;
+          
+          // Use class from selected template (styles from CSS)
+          el.className = tpl.className; 
           el.style.display = 'flex';
 
           const baseZ = loc.zIndex + 200;
@@ -633,7 +587,6 @@ function initMap() {
           const dialogEl = loc.slug ? dialogRegistry.get(loc.slug) : null;
           const hasDialog = !!(dialogEl && loc.isClickable);
 
-          // Store reference for zoom-based visibility
           markerEntries.push({
             marker,
             el,
@@ -643,11 +596,11 @@ function initMap() {
             loc
           });
 
-          // Hover: show popup for ALL markers (clickable or not)
+          // --- POPUP EVENTS (Removed JS cursor manipulation) ---
           el.addEventListener('mouseenter', () => {
             isHoveringMarker = true;
             el.style.zIndex = 1000;
-            map.getCanvas().style.cursor = hasDialog ? 'pointer' : 'default';
+            // No JS cursor set here. Handled by CSS on el.className
 
             if (loc.title) {
               popup
@@ -660,11 +613,9 @@ function initMap() {
           el.addEventListener('mouseleave', () => {
             isHoveringMarker = false;
             el.style.zIndex = baseZ;
-            map.getCanvas().style.cursor = '';
             popup.remove();
           });
 
-          // Click: open dialog only if marker is flagged clickable AND dialog exists
           el.addEventListener('click', () => {
             if (!hasDialog) return;
             const dlg = dialogRegistry.get(loc.slug);
@@ -672,21 +623,18 @@ function initMap() {
               openMapDialog(dlg, loc);
             }
           });
-        });
-      }
+        }
+      });
 
-      // Hide loader overlay
       const loader = document.getElementById('map-loader-overlay');
       if (loader) {
         loader.classList.add('loader-hidden');
         setTimeout(() => loader.remove(), 500);
       }
 
-      // Initial visibility & zoom listener for markers
       updateMarkerVisibility();
       map.on('zoom', updateMarkerVisibility);
 
-      // --- HEX HOVER FEEDBACK (for areas) ---
       const hexLayers = ['hex-layer-bottom','hex-layer-top'];
 
       map.on('mousemove', e => {
@@ -714,12 +662,10 @@ function initMap() {
 
       map.on('click', e => {
         if (isHoveringMarker) return;
-
         const feats = map.queryRenderedFeatures(e.point, { layers:hexLayers });
         if (feats.length) {
           const f = feats[0];
           if (f.properties.opacity > 0.2 && f.properties.description) {
-            // Area click goes here if you later want area-specific modals
             console.log("Open Area Modal:", f.properties.label);
           }
         }
