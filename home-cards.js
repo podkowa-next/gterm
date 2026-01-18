@@ -16,7 +16,7 @@
         scale: 1,
         duration: 1,
         ease: "expo.out",
-        delay: 1.5, // Reduced delay (3.5s might be too long for static content)
-        stagger: 0.25
+        delay: 1.25, // Reduced delay (3.5s might be too long for static content)
+        stagger: 0.35
     });
 })();
