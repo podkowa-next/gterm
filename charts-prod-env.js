@@ -1,6 +1,7 @@
 /* ============================================================
    CHARTS PRODUCTION ENVIRONMENT
    Integrated with Main-Loader Safety Check
+   [UPDATED] With Universal Locale Number Fix (PL/EN)
 ============================================================ */
 
 (function() {
@@ -9,14 +10,6 @@
     function startChartSystem() {
         console.log("✅ Chart.js library detected. Initializing system...");
 
-        /* ------------------------------------------------------------
-           YOUR ORIGINAL LOGIC STARTS HERE
-        ------------------------------------------------------------ */
-
-        /* ============================================================
-           Global INIT
-           Wait 300 ms so Webflow can apply combo classes + CMS content
-        ============================================================ */
         setTimeout(() => {
             initCharts();
             initWebflowTabs();
@@ -24,7 +17,6 @@
 
         /* ============================================================
            Utility: wait until canvas has a real size
-           (tabs/hidden content → offsetWidth=0 → Chart.js miscalculates)
         ============================================================ */
         function waitForRealSize(canvas, callback) {
             const check = () => {
@@ -44,7 +36,6 @@
 
         /* ============================================================
            MAIN CHART INITIALIZATION
-           (Runs at page load and after each tab switch)
         ============================================================ */
         function initCharts() {
 
@@ -92,7 +83,6 @@
 
                 const lower = token.toLowerCase();
 
-                // literal colors (#, rgb, hsl, oklch)
                 if (token.startsWith('#') ||
                     lower.startsWith('rgb(') ||
                     lower.startsWith('rgba(') ||
@@ -101,25 +91,16 @@
                     lower.startsWith('oklch(')) {
                     return token;
                 }
-
-                // semantic → var(...)
                 if (semanticToVar[lower]) return getVar(semanticToVar[lower], wrapper);
-
-                // raw var(...)
                 if (token.startsWith('var(')) return getVar(token, wrapper);
 
                 return token;
             };
 
-            // Convert clamp(), rem, px, vw… → px
             const measureFont = (wrapper, fs) => {
                 if (!fs) return 14;
                 if (fs.startsWith('var(')) fs = getVar(fs, wrapper);
-
-                // px → direct
                 if (/^[0-9.]+px$/.test(fs)) return parseFloat(fs) || 14;
-
-                // ALL COMPLEX VALUES measured visually
                 const probe = document.createElement('div');
                 probe.style.position = 'absolute';
                 probe.style.visibility = 'hidden';
@@ -131,25 +112,20 @@
                 return px || 14;
             };
 
-            // Color dimming for hover (bars only)
             const withOpacity = (color, alpha) => {
                 if (!color) return color;
                 const c = color.trim().toLowerCase();
-
                 if (c.startsWith('oklch(')) {
                     return color.includes('/') ?
                         color.replace(/\/[^)]+/, `/ ${alpha}`) :
                         color.replace(')', ` / ${alpha})`);
                 }
-
                 if (c.startsWith('rgba(')) {
                     return color.replace(/rgba\(([^,]+,[^,]+,[^,]+),[^)]+\)/, `rgba($1,${alpha})`);
                 }
-
                 if (c.startsWith('rgb(')) {
                     return color.replace(/rgb\(([^,]+,[^,]+,[^,]+)\)/, `rgba($1,${alpha})`);
                 }
-
                 if (color.startsWith('#')) {
                     let r, g, b;
                     if (color.length === 4) {
@@ -163,15 +139,12 @@
                     }
                     return `rgba(${r},${g},${b},${alpha})`;
                 }
-
                 return color;
             };
 
-            // Detect Safari (macOS + iOS)
             const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 
             /* -------------------- Build all charts -------------------- */
-
             const wrappers = document.querySelectorAll('.chart-wrapper');
             if (!wrappers.length) return;
 
@@ -181,7 +154,54 @@
                 const ctx = canvas.getContext('2d');
                 if (!ctx) return;
 
-                /* -------- Read user config from data-attributes -------- */
+                /* =========================================================================
+                   [FIX] UNIVERSAL NUMBER PARSER (PL vs EN)
+                   Handles: "1,200.50" (EN), "1 200,50" (PL), "2,5" (PL Decimal), "2.5" (EN)
+                ========================================================================= */
+                const cleanNumber = (val, fallback = undefined) => {
+                    if (val === undefined || val === null || val === '') return fallback;
+                    
+                    let str = String(val).trim();
+                    
+                    // 1. Remove Spaces (Webflow uses spaces for thousands in PL)
+                    str = str.replace(/\s/g, ''); 
+                    
+                    // 2. Check Locale
+                    const isPL = document.documentElement.lang.toLowerCase().includes('pl');
+                    
+                    if (isPL) {
+                        // PL: Comma is decimal separator. Replace with dot.
+                        str = str.replace(',', '.'); 
+                    } else {
+                        // EN: Comma is thousands separator. Remove it.
+                        str = str.replace(/,/g, ''); 
+                    }
+                    
+                    const num = parseFloat(str);
+                    return isNaN(num) ? fallback : num;
+                };
+
+                /* =========================================================================
+                   [FIX] PARSE AND CLEAN DATASETS
+                   We parse the JSON first, then map over values to apply cleanNumber()
+                ========================================================================= */
+                let cleanDatasets = [];
+                try {
+                    const rawDatasets = wrapper.dataset.chDatasets ? JSON.parse(wrapper.dataset.chDatasets) : [];
+                    cleanDatasets = rawDatasets.map(d => {
+                        // Create deep copy
+                        const newD = { ...d };
+                        if (Array.isArray(newD.values)) {
+                            // Apply cleaner to every value in the array
+                            newD.values = newD.values.map(v => cleanNumber(v, 0));
+                        }
+                        return newD;
+                    });
+                } catch (e) {
+                    console.error("Chart JSON Error. Check quotes around CMS items.", e);
+                }
+
+                /* -------- Read user config (UPDATED WITH CLEANER) -------- */
                 const animatedRaw = wrapper.dataset.chAnimated === undefined ? true : getBool(wrapper.dataset.chAnimated);
 
                 const cfg = {
@@ -191,12 +211,16 @@
                     fill: getBool(wrapper.dataset.chFill),
                     smooth: getBool(wrapper.dataset.chSmooth),
                     animated: isSafari ? false : animatedRaw,
-                    ymax: parseFloat(wrapper.dataset.chYmax) || undefined,
+                    
+                    /* [FIX] Apply cleanNumber to all numeric attributes */
+                    ymax: cleanNumber(wrapper.dataset.chYmax),
+                    pointRadius: cleanNumber(wrapper.dataset.chPd, 3),
+                    lineBorderWidth: cleanNumber(wrapper.dataset.chLinestroke, 2),
+                    barBorderWidth: cleanNumber(wrapper.dataset.chBarBorderWidth, 0),
+
                     yunit: wrapper.dataset.chYunit || '',
                     xlabels: wrapper.dataset.chXlabels ? JSON.parse(wrapper.dataset.chXlabels) : [],
-                    datasets: wrapper.dataset.chDatasets ? JSON.parse(wrapper.dataset.chDatasets) : [],
-                    pointRadius: parseFloat(wrapper.dataset.chPd) || 3,
-                    lineBorderWidth: parseFloat(wrapper.dataset.chLinestroke) || 2
+                    datasets: cleanDatasets // Use the cleaned datasets
                 };
 
                 const fsToken = (wrapper.dataset.chFontsize || '').trim();
@@ -207,6 +231,7 @@
                 if (!ff) ff = getComputedStyle(document.body).fontFamily;
                 cfg.fontFamily = ff;
 
+                // Color Configuration (Unchanged)
                 cfg.textColor = resolveSemanticColor(wrapper.dataset.chTc, wrapper, 'Text');
                 cfg.legendColor = resolveSemanticColor(wrapper.dataset.chLc, wrapper, 'AltText');
                 cfg.gridColor = resolveSemanticColor(wrapper.dataset.chGc, wrapper, 'MixBorder');
@@ -228,7 +253,7 @@
                 if (cfg.type === 'line') {
                     datasets = cfg.datasets.map((d, i) => ({
                         label: d.label,
-                        data: d.values,
+                        data: d.values, // These are now cleaned numbers
                         borderColor: normalizeColor(i === 0 ? cfg.lineStroke1 : cfg.lineStroke2),
                         backgroundColor: normalizeColor(i === 0 ? cfg.lineFill1 : cfg.lineFill2),
                         pointBackgroundColor: normalizeColor(i === 0 ? cfg.linePoint1 : cfg.linePoint2),
@@ -242,10 +267,10 @@
                         const base = normalizeColor(i === 0 ? cfg.barFill1 : cfg.barFill2);
                         return {
                             label: d.label,
-                            data: d.values,
+                            data: d.values, // These are now cleaned numbers
                             backgroundColor: base,
                             borderColor: normalizeColor(cfg.barStroke),
-                            borderWidth: parseInt(wrapper.dataset.chBarBorderWidth) || 0,
+                            borderWidth: cfg.barBorderWidth, // Used cleaned width
                             hoverBackgroundColor: () => withOpacity(base, HOVER_OPACITY)
                         };
                     });
@@ -271,7 +296,7 @@
                                 },
                                 y: {
                                     stacked: cfg.stacked,
-                                    max: cfg.ymax,
+                                    max: cfg.ymax, // Used cleaned Max
                                     title: {
                                         display: !!cfg.yunit,
                                         text: cfg.yunit,
@@ -376,7 +401,6 @@
         }
     }, 50);
 
-    // Stop checking after 5 seconds to prevent memory leaks if library fails
     setTimeout(() => {
         if (typeof Chart === 'undefined') console.error("❌ Chart.js library failed to load.");
         clearInterval(chartLibCheck);
