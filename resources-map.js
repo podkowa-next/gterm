@@ -576,16 +576,35 @@ function initMap() {
           const baseZ = loc.zIndex + 200;
           el.style.zIndex = baseZ;
 
+          // --- ACCESSIBILITY FIX 1: Add alt="" to the generated image ---
+          // This tells WAVE/Screen Readers to treat the image as decorative, 
+          // avoiding the "Missing alternative text" error.
           if (loc.iconUrl) {
-            el.innerHTML = `<img src="${loc.iconUrl}" style="width:100%;height:100%;object-fit:contain;">`;
+            el.innerHTML = `<img src="${loc.iconUrl}" alt="" style="width:100%;height:100%;object-fit:contain;">`;
+          }
+
+          // --- ACCESSIBILITY FIX 2: Assign accessible names and roles to the button wrapper ---
+          // This fixes the "Empty button" WAVE error and lets screen readers read the city name.
+          if (loc.title) {
+             el.setAttribute('aria-label', loc.title);
+             el.setAttribute('title', loc.title); // Also adds a nice native mouse tooltip
+          } else {
+             el.setAttribute('aria-label', 'Map marker'); // Safe fallback
+          }
+
+          const dialogEl = loc.slug ? dialogRegistry.get(loc.slug) : null;
+          const hasDialog = !!(dialogEl && loc.isClickable);
+
+          // --- ACCESSIBILITY FIX 3: Keyboard Navigation & Roles ---
+          // If the marker opens a dialog or is clickable, it must act like a real button.
+          if (hasDialog || loc.isClickable) {
+             el.setAttribute('role', 'button'); // Tells screen reader "This is a button"
+             el.setAttribute('tabindex', '0');  // Allows keyboard users to Tab onto it
           }
 
           const marker = new mapboxgl.Marker({element:el})
             .setLngLat([loc.long, loc.lat])
             .addTo(map);
-
-          const dialogEl = loc.slug ? dialogRegistry.get(loc.slug) : null;
-          const hasDialog = !!(dialogEl && loc.isClickable);
 
           markerEntries.push({
             marker,
@@ -600,7 +619,6 @@ function initMap() {
           el.addEventListener('mouseenter', () => {
             isHoveringMarker = true;
             el.style.zIndex = 1000;
-            // No JS cursor set here. Handled by CSS on el.className
 
             if (loc.title) {
               popup
@@ -621,6 +639,18 @@ function initMap() {
             const dlg = dialogRegistry.get(loc.slug);
             if (dlg) {
               openMapDialog(dlg, loc);
+            }
+          });
+
+          // --- ACCESSIBILITY FIX 4: Add Keyboard trigger for the dialog ---
+          // A mouse user can click, but a keyboard user presses Enter or Space.
+          el.addEventListener('keydown', (e) => {
+            if ((e.key === 'Enter' || e.key === ' ') && hasDialog) {
+               e.preventDefault(); // Prevents the 'Space' key from scrolling the page down
+               const dlg = dialogRegistry.get(loc.slug);
+               if (dlg) {
+                 openMapDialog(dlg, loc);
+               }
             }
           });
         }
