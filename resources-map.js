@@ -323,7 +323,7 @@ function initMap() {
   }
 
   mapboxgl.accessToken =
-    'pk.eyJ1Ijoid2Vic2VydmljZS1kZXYiLCJhIjoiY20zYzNyOWExMGd2ajJtczZ0YXg0d3UwbyJ9.6avXsfoNLoTmGFE0I6eH5Q';
+    'pk.eyJ1Ijoid2Vic2VydmljZS1kZXYiLCJhIjoiY21zd2NoandtMGJjOTJ6czdkNDlnZTNybSJ9.Y5yaO7OMw_Qbx7fTPHYxjQ';
 
   const map = new mapboxgl.Map({
     container:'map',
